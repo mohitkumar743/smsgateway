@@ -3,7 +3,7 @@ import { Schema, model, models } from "mongoose";
 const DeviceSchema = new Schema(
   {
     deviceName: { type: String, required: true, trim: true },
-    phoneNumber: { type: String, required: true, trim: true },
+    phoneNumber: { type: String, default: "", trim: true },
     androidVersion: { type: String, default: "" },
     appVersion: { type: String, default: "" },
     fcmToken: { type: String, required: true },

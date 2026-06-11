@@ -12,7 +12,10 @@ export async function POST(request: NextRequest) {
     const device = await requireDevice(request);
     if (!device) return apiError("UNAUTHORIZED", "Invalid device token", 401);
 
-    const { fcmToken } = schema.parse(await request.json());
+    const body = (await request.json()) as Record<string, unknown>;
+    const { fcmToken } = schema.parse({
+      fcmToken: body.fcmToken ?? body.fcm_token,
+    });
     device.fcmToken = fcmToken;
     device.lastSeen = new Date();
     await device.save();

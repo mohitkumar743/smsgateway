@@ -18,7 +18,11 @@ export async function POST(request: NextRequest) {
       return apiError("CLIENT_BLOCKED", "Client is blocked", 403);
     }
 
-    const input = schema.parse(await request.json());
+    const body = (await request.json()) as Record<string, unknown>;
+    const input = schema.parse({
+      request_id: body.request_id,
+      otp: body.otp ?? body.code,
+    });
     const otpRequest = await OtpRequest.findOne({
       requestId: input.request_id,
       clientId: client._id,

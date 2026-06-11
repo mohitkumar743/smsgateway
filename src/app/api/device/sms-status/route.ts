@@ -20,7 +20,10 @@ const schema = z.object({
     "rate_limited",
   ]),
   error: z.string().max(1000).nullable().optional(),
-  timestamp: z.string().regex(/^\d{13}$/),
+  timestamp: z.union([
+    z.string().regex(/^\d{13}$/),
+    z.iso.datetime({ offset: true }),
+  ]),
 });
 
 const directStatuses = new Set(["sending", "sent", "delivered", "failed"]);
@@ -42,13 +45,16 @@ export async function POST(request: NextRequest) {
     const normalizedStatus = directStatuses.has(input.status)
       ? input.status
       : "failed";
+    const statusTime = /^\d{13}$/.test(input.timestamp)
+      ? new Date(Number(input.timestamp))
+      : new Date(input.timestamp);
     otpRequest.status = normalizedStatus;
     otpRequest.error =
       input.error ??
       (normalizedStatus === "failed" ? input.status : null);
 
     if (input.status === "sent" && !otpRequest.sentAt) {
-      otpRequest.sentAt = new Date(Number(input.timestamp));
+      otpRequest.sentAt = statusTime;
       device.lastSentAt = otpRequest.sentAt;
       device.sentToday += 1;
     }

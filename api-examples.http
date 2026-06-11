@@ -18,11 +18,10 @@ POST {{baseUrl}}/api/device/register
 Content-Type: application/json
 
 {
-  "deviceName": "Samsung A52",
-  "phoneNumber": "+919876543210",
-  "androidVersion": "14",
-  "appVersion": "1.0.0",
-  "fcmToken": "REPLACE_WITH_REAL_FIREBASE_TOKEN_AT_LEAST_20_CHARS"
+  "device_name": "Google Pixel 8",
+  "android_version": "Android 14 (API 34)",
+  "app_version": "1.0_gateway",
+  "fcm_token": "REPLACE_WITH_REAL_FIREBASE_TOKEN_AT_LEAST_20_CHARS"
 }
 
 ### Device heartbeat
@@ -31,10 +30,10 @@ Authorization: Bearer {{deviceToken}}
 Content-Type: application/json
 
 {
-  "batteryOptimizationIgnored": true,
-  "smsPermission": true,
-  "simReady": true,
-  "foregroundServiceRunning": true
+  "battery_optimization_ignored": true,
+  "sms_permission": true,
+  "sim_ready": true,
+  "foreground_service_running": true
 }
 
 ### Update device FCM token
@@ -43,7 +42,7 @@ Authorization: Bearer {{deviceToken}}
 Content-Type: application/json
 
 {
-  "fcmToken": "REPLACE_WITH_NEW_FIREBASE_TOKEN_AT_LEAST_20_CHARS"
+  "fcm_token": "REPLACE_WITH_NEW_FIREBASE_TOKEN_AT_LEAST_20_CHARS"
 }
 
 ### Create client
@@ -88,7 +87,7 @@ Content-Type: application/json
 
 {
   "request_id": "{{requestId}}",
-  "otp": "123456"
+  "code": "123456"
 }
 
 ### Get OTP status

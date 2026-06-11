@@ -8,7 +8,7 @@ import Device from "@/models/Device";
 
 const schema = z.object({
   deviceName: z.string().trim().min(1).max(100),
-  phoneNumber: z.string().regex(/^\+[1-9]\d{7,14}$/),
+  phoneNumber: z.string().regex(/^\+[1-9]\d{7,14}$/).optional(),
   androidVersion: z.string().trim().max(30).default(""),
   appVersion: z.string().trim().max(30).default(""),
   fcmToken: z.string().trim().min(20).max(4096),
@@ -16,7 +16,14 @@ const schema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const input = schema.parse(await request.json());
+    const body = (await request.json()) as Record<string, unknown>;
+    const input = schema.parse({
+      deviceName: body.deviceName ?? body.device_name,
+      phoneNumber: body.phoneNumber ?? body.phone_number,
+      androidVersion: body.androidVersion ?? body.android_version,
+      appVersion: body.appVersion ?? body.app_version,
+      fcmToken: body.fcmToken ?? body.fcm_token,
+    });
     await connectDb();
 
     const plainDeviceToken = secureToken("dev");
@@ -33,6 +40,7 @@ export async function POST(request: NextRequest) {
         device_token: plainDeviceToken,
         device_id: device.id,
         hmac_secret: getEnv("DEVICE_HMAC_SECRET"),
+        status: "registered",
       },
       { status: 201 },
     );
