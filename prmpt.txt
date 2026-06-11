@@ -1,0 +1,461 @@
+Build a production-ready Next.js backend for an Android SMS Gateway OTP system.
+
+Goal:
+Create a backend API that connects with my Android app. The Android app receives FCM data messages and sends SMS from the phone SIM. This backend must manage devices, clients, OTP generation, OTP verification, FCM push commands, SMS status updates, logs, rate limits, and security.
+
+Tech stack:
+- Next.js App Router
+- TypeScript
+- MongoDB
+- Mongoose
+- Firebase Admin SDK
+- Zod validation
+- JWT or secure random tokens
+- bcrypt/crypto for hashing
+- HMAC SHA256 signing
+- REST API only
+
+The backend must be fully compatible with this Android app payload format:
+
+FCM payload sent to Android:
+{
+  "type": "SEND_SMS",
+  "request_id": "otp_123",
+  "mobile": "+919876543210",
+  "message": "Your OTP is 123456",
+  "client_id": "client_123",
+  "signature": "HMAC_SIGNATURE",
+  "timestamp": "1710000000000"
+}
+
+Android app will validate:
+- type == SEND_SMS
+- request_id exists
+- mobile exists
+- message exists
+- timestamp is not older than 2 minutes
+- HMAC signature is valid
+- request_id is not duplicate
+- SMS permission exists
+- SIM is ready
+- local rate limits are not exceeded
+
+Important:
+The backend must generate the exact HMAC signature using:
+messageToSign = request_id + "|" + mobile + "|" + message + "|" + client_id + "|" + timestamp
+
+signature = HMAC_SHA256(messageToSign, DEVICE_HMAC_SECRET)
+
+Use same DEVICE_HMAC_SECRET in backend and Android app.
+
+Required environment variables:
+MONGODB_URI=
+JWT_SECRET=
+DEVICE_HMAC_SECRET=
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
+ADMIN_EMAIL=
+ADMIN_PASSWORD=
+
+Project structure:
+src/
+  app/
+    api/
+      auth/login/route.ts
+      device/register/route.ts
+      device/update-fcm-token/route.ts
+      device/heartbeat/route.ts
+      device/sms-status/route.ts
+      clients/create/route.ts
+      otp/send/route.ts
+      otp/verify/route.ts
+      otp/status/[requestId]/route.ts
+  lib/
+    db.ts
+    firebase.ts
+    auth.ts
+    hmac.ts
+    otp.ts
+    rateLimit.ts
+    response.ts
+  models/
+    Admin.ts
+    Device.ts
+    Client.ts
+    OtpRequest.ts
+    SmsLog.ts
+  middleware.ts
+
+Database models:
+
+1. Device
+Fields:
+- deviceName
+- phoneNumber
+- androidVersion
+- appVersion
+- fcmToken
+- deviceToken
+- status: active | inactive | blocked
+- lastSeen
+- dailyLimit
+- perMinuteLimit
+- sentToday
+- lastSentAt
+- createdAt
+- updatedAt
+
+2. Client
+Fields:
+- name
+- apiKey
+- status: active | blocked
+- dailyLimit
+- sentToday
+- allowedTemplates
+- allowedIps
+- createdAt
+- updatedAt
+
+3. OtpRequest
+Fields:
+- requestId
+- clientId
+- deviceId
+- mobile
+- otpHash
+- message
+- status: queued | pushed | sending | sent | delivered | failed | verified | expired
+- error
+- expiresAt
+- sentAt
+- verifiedAt
+- attempts
+- createdAt
+- updatedAt
+
+4. SmsLog
+Fields:
+- requestId
+- clientId
+- deviceId
+- mobileMasked
+- status
+- error
+- provider: android_phone
+- createdAt
+
+API requirements:
+
+1. POST /api/device/register
+Used by Android app during first setup.
+
+Request:
+{
+  "deviceName": "Samsung A52",
+  "phoneNumber": "+919876543210",
+  "androidVersion": "14",
+  "appVersion": "1.0.0",
+  "fcmToken": "..."
+}
+
+Response:
+{
+  "success": true,
+  "device_token": "...",
+  "device_id": "...",
+  "hmac_secret": "..."
+}
+
+Validation:
+- fcmToken required
+- phoneNumber required
+- deviceName required
+- create secure deviceToken
+- save device in MongoDB
+- return device_token
+- return hmac_secret only once during setup
+
+2. POST /api/device/update-fcm-token
+Used by Android when FCM token changes.
+
+Headers:
+Authorization: Bearer DEVICE_TOKEN
+
+Request:
+{
+  "fcmToken": "new_token"
+}
+
+Response:
+{
+  "success": true
+}
+
+3. POST /api/device/heartbeat
+Used by Android app every few minutes or on app open.
+
+Headers:
+Authorization: Bearer DEVICE_TOKEN
+
+Request:
+{
+  "batteryOptimizationIgnored": true,
+  "smsPermission": true,
+  "simReady": true,
+  "foregroundServiceRunning": true
+}
+
+Response:
+{
+  "success": true,
+  "limits": {
+    "dailyLimit": 100,
+    "perMinuteLimit": 5
+  }
+}
+
+4. POST /api/device/sms-status
+Used by Android after SMS sent/failed/delivered.
+
+Headers:
+Authorization: Bearer DEVICE_TOKEN
+
+Request:
+{
+  "request_id": "otp_123",
+  "status": "sent",
+  "error": null,
+  "timestamp": "1710000000000"
+}
+
+Allowed statuses:
+- sending
+- sent
+- delivered
+- failed
+- permission_denied
+- invalid_payload
+- duplicate_request
+- sim_not_ready
+- rate_limited
+
+Backend must:
+- verify device token
+- find OTP request by request_id
+- update status
+- create SmsLog
+- set sentAt if status is sent
+- save error if failed
+
+5. POST /api/clients/create
+Admin-only endpoint.
+
+Headers:
+Authorization: Bearer ADMIN_JWT
+
+Request:
+{
+  "name": "Client Website",
+  "dailyLimit": 100,
+  "allowedIps": [],
+  "allowedTemplates": [
+    "Your OTP is {otp}"
+  ]
+}
+
+Response:
+{
+  "success": true,
+  "client_id": "...",
+  "api_key": "..."
+}
+
+6. POST /api/otp/send
+Used by external client website/app.
+
+Headers:
+Authorization: Bearer CLIENT_API_KEY
+
+Request:
+{
+  "mobile": "+919876543210",
+  "template": "Your OTP is {otp}",
+  "length": 6
+}
+
+Backend must:
+- verify client API key
+- check client is active
+- validate mobile number
+- validate template is allowed
+- enforce client daily limit
+- select active Android device
+- enforce device daily/per-minute limit
+- generate OTP
+- hash OTP before saving
+- create request_id like otp_xxxxx
+- create final message by replacing {otp}
+- save OtpRequest status queued
+- create HMAC signature compatible with Android:
+  request_id + "|" + mobile + "|" + message + "|" + client_id + "|" + timestamp
+- send FCM data message to selected device:
+{
+  "type": "SEND_SMS",
+  "request_id": "...",
+  "mobile": "...",
+  "message": "...",
+  "client_id": "...",
+  "signature": "...",
+  "timestamp": "..."
+}
+- use Android high priority FCM
+- update OtpRequest status to pushed
+- return:
+{
+  "success": true,
+  "request_id": "...",
+  "status": "queued"
+}
+
+7. POST /api/otp/verify
+Used by external client website/app.
+
+Headers:
+Authorization: Bearer CLIENT_API_KEY
+
+Request:
+{
+  "request_id": "otp_123",
+  "otp": "123456"
+}
+
+Backend must:
+- verify client API key
+- find OTP request
+- check request belongs to this client
+- check not expired
+- check attempts < 3
+- compare OTP with stored hash
+- if correct, set status verified and verifiedAt
+- if wrong, increment attempts
+- after 3 wrong attempts, block verification for this OTP
+- return success true/false
+
+8. GET /api/otp/status/[requestId]
+Used by client to check SMS status.
+
+Headers:
+Authorization: Bearer CLIENT_API_KEY
+
+Response:
+{
+  "success": true,
+  "request_id": "...",
+  "status": "sent",
+  "error": null,
+  "created_at": "...",
+  "sent_at": "..."
+}
+
+Security requirements:
+- Never store plain OTP.
+- Hash OTP using bcrypt or crypto hash with salt.
+- Do not log full OTP.
+- Mask mobile number in logs.
+- Use HTTPS only in production.
+- API keys must be long random strings.
+- Device tokens must be long random strings.
+- HMAC signatures required for Android FCM payloads.
+- Reject expired commands.
+- Prevent duplicate request_id.
+- Rate limit clients and devices.
+- Add clear error responses.
+- Use Zod for request validation.
+- Use try/catch in every route.
+- Do not expose Firebase private key.
+- Do not expose admin password.
+- Return hmac_secret only once at device registration.
+
+FCM requirement:
+Use Firebase Admin SDK.
+Send data message, not notification message.
+
+Example:
+admin.messaging().send({
+  token: device.fcmToken,
+  data: {
+    type: "SEND_SMS",
+    request_id,
+    mobile,
+    message,
+    client_id,
+    signature,
+    timestamp
+  },
+  android: {
+    priority: "high"
+  }
+})
+
+Important:
+All FCM data values must be strings.
+
+Error handling:
+Use standard response format:
+
+Success:
+{
+  "success": true,
+  "data": {}
+}
+
+Error:
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable message"
+  }
+}
+
+Required error codes:
+- VALIDATION_ERROR
+- UNAUTHORIZED
+- CLIENT_BLOCKED
+- DEVICE_NOT_FOUND
+- DEVICE_OFFLINE
+- RATE_LIMITED
+- TEMPLATE_NOT_ALLOWED
+- OTP_EXPIRED
+- OTP_INVALID
+- OTP_ATTEMPTS_EXCEEDED
+- FCM_FAILED
+- SERVER_ERROR
+
+Also create:
+- README.md
+- .env.example
+- Postman collection or API examples
+- Seed script to create admin user
+- Basic dashboard pages optional:
+  - /dashboard/devices
+  - /dashboard/clients
+  - /dashboard/logs
+
+Compatibility notes for Android:
+- Android will receive FCM in FirebaseMessagingService.
+- Android expects request_id, mobile, message, client_id, signature, timestamp.
+- Android validates HMAC using same DEVICE_HMAC_SECRET.
+- Backend must send timestamp in milliseconds as string.
+- Backend must not send OTP requests older than 2 minutes.
+- Backend must not resend same request_id.
+- Android will call /api/device/sms-status after sending SMS.
+
+Deliver full working code, not pseudo-code.
+Use TypeScript.
+Use clean, readable files.
+Add comments where needed.
+
+Make sure the backend FCM payload and Android app payload names match exactly. Do not rename request_id to requestId in FCM data.
