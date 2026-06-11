@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       deviceId: device._id,
     });
     if (!otpRequest) {
-      return apiError("NOT_FOUND", "OTP request was not found", 404);
+      return apiError("NOT_FOUND", "SMS request was not found", 404);
     }
 
     const normalizedStatus = directStatuses.has(input.status)

@@ -53,8 +53,7 @@ Content-Type: application/json
 {
   "name": "Client Website",
   "dailyLimit": 100,
-  "allowedIps": [],
-  "allowedTemplates": ["Your OTP is {otp}"]
+  "allowedIps": []
 }
 
 ### Send OTP
@@ -66,6 +65,16 @@ Content-Type: application/json
   "mobile": "+919876543210",
   "template": "Your OTP is {otp}",
   "length": 6
+}
+
+### Send any general message
+POST {{baseUrl}}/api/messages/send
+Authorization: Bearer {{clientApiKey}}
+Content-Type: application/json
+
+{
+  "mobile": "+919876543210",
+  "message": "Happy birthday! Wishing you a wonderful year ahead."
 }
 
 ### Android reports SMS status
@@ -92,4 +101,8 @@ Content-Type: application/json
 
 ### Get OTP status
 GET {{baseUrl}}/api/otp/status/{{requestId}}
+Authorization: Bearer {{clientApiKey}}
+
+### Get general message status
+GET {{baseUrl}}/api/messages/status/{{requestId}}
 Authorization: Bearer {{clientApiKey}}

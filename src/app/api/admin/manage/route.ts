@@ -35,14 +35,6 @@ const updateSchema = z.discriminatedUnion("kind", [
     id: z.string().min(1),
     status: z.enum(["active", "blocked"]).optional(),
     rotateApiKey: z.literal(true).optional(),
-    allowedTemplates: z
-      .array(
-        z.string().min(1).max(1000).refine((value) => value.includes("{otp}"), {
-          message: "Every template must contain {otp}",
-        }),
-      )
-      .min(1)
-      .optional(),
   }),
   z.object({
     kind: z.literal("device"),
@@ -61,7 +53,7 @@ export async function GET(request: NextRequest) {
     const [admins, clients, devices, otpRequests, smsLogs] = await Promise.all([
       Admin.find().select("email createdAt updatedAt").sort({ createdAt: -1 }).lean(),
       Client.find()
-        .select("name status dailyLimit sentToday allowedTemplates allowedIps createdAt updatedAt")
+        .select("name status dailyLimit sentToday allowedIps createdAt updatedAt")
         .sort({ createdAt: -1 })
         .limit(250)
         .lean(),
@@ -74,7 +66,7 @@ export async function GET(request: NextRequest) {
         .lean(),
       OtpRequest.find()
         .select(
-          "requestId clientId deviceId mobile status error expiresAt sentAt verifiedAt attempts createdAt updatedAt",
+          "requestId requestType clientId deviceId mobile message status error expiresAt sentAt verifiedAt attempts createdAt updatedAt",
         )
         .populate("clientId", "name")
         .populate("deviceId", "deviceName")
@@ -185,37 +177,37 @@ export async function PATCH(request: NextRequest) {
 
     const input = updateSchema.parse(await request.json());
     await connectDb();
-    const model = input.kind === "client" ? Client : Device;
-    const plainApiKey =
-      input.kind === "client" && input.rotateApiKey
-        ? secureToken("client")
-        : null;
-    const update =
-      input.kind === "client"
-        ? {
-            ...(input.status !== undefined && { status: input.status }),
-            ...(plainApiKey !== null && { apiKey: tokenDigest(plainApiKey) }),
-            ...(input.allowedTemplates !== undefined && {
-              allowedTemplates: input.allowedTemplates,
-            }),
-          }
-        : { status: input.status };
-    const updated = await model.findByIdAndUpdate(input.id, update, {
-      new: true,
-      runValidators: true,
-    });
+    if (input.kind === "client") {
+      const plainApiKey = input.rotateApiKey ? secureToken("client") : null;
+      const updated = await Client.findByIdAndUpdate(
+        input.id,
+        {
+          ...(input.status !== undefined && { status: input.status }),
+          ...(plainApiKey !== null && { apiKey: tokenDigest(plainApiKey) }),
+        },
+        { new: true, runValidators: true },
+      );
 
-    if (!updated) return apiError("NOT_FOUND", `${input.kind} not found`, 404);
+      if (!updated) return apiError("NOT_FOUND", "client not found", 404);
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: updated.id,
+          status: updated.status,
+          ...(plainApiKey !== null && { apiKey: plainApiKey }),
+        },
+      });
+    }
+
+    const updated = await Device.findByIdAndUpdate(
+      input.id,
+      { status: input.status },
+      { new: true, runValidators: true },
+    );
+    if (!updated) return apiError("NOT_FOUND", "device not found", 404);
     return NextResponse.json({
       success: true,
-      data: {
-        id: updated.id,
-        status: updated.status,
-        ...(input.kind === "client" && {
-          allowedTemplates: updated.allowedTemplates,
-          ...(plainApiKey !== null && { apiKey: plainApiKey }),
-        }),
-      },
+      data: { id: updated.id, status: updated.status },
     });
   } catch (error) {
     return routeError(error);

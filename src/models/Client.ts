@@ -12,7 +12,6 @@ const ClientSchema = new Schema(
     },
     dailyLimit: { type: Number, default: 100, min: 1 },
     sentToday: { type: Number, default: 0 },
-    allowedTemplates: [{ type: String, required: true }],
     allowedIps: [{ type: String }],
   },
   { timestamps: true },

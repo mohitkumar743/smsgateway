@@ -16,33 +16,22 @@ export async function GET(request: NextRequest, context: Context) {
     }
 
     const { requestId } = await context.params;
-    const otpRequest = await OtpRequest.findOne({
+    const messageRequest = await OtpRequest.findOne({
       requestId,
+      requestType: "message",
       clientId: client._id,
     });
-    if (!otpRequest) {
-      return apiError("NOT_FOUND", "OTP request was not found", 404);
-    }
-    if (otpRequest.requestType === "message") {
-      return apiError("NOT_FOUND", "OTP request was not found", 404);
-    }
-
-    if (
-      otpRequest.status !== "verified" &&
-      otpRequest.expiresAt &&
-      otpRequest.expiresAt <= new Date()
-    ) {
-      otpRequest.status = "expired";
-      await otpRequest.save();
+    if (!messageRequest) {
+      return apiError("NOT_FOUND", "Message request was not found", 404);
     }
 
     return NextResponse.json({
       success: true,
-      request_id: otpRequest.requestId,
-      status: otpRequest.status,
-      error: otpRequest.error,
-      created_at: otpRequest.createdAt,
-      sent_at: otpRequest.sentAt,
+      request_id: messageRequest.requestId,
+      status: messageRequest.status,
+      error: messageRequest.error,
+      created_at: messageRequest.createdAt,
+      sent_at: messageRequest.sentAt,
     });
   } catch (error) {
     return routeError(error);

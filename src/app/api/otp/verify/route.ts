@@ -30,6 +30,9 @@ export async function POST(request: NextRequest) {
     if (!otpRequest) {
       return apiError("OTP_INVALID", "OTP request was not found", 404);
     }
+    if (otpRequest.requestType === "message" || !otpRequest.otpHash) {
+      return apiError("OTP_INVALID", "This request does not contain an OTP", 400);
+    }
     if (otpRequest.status === "verified") {
       return NextResponse.json({ success: true, verified: true });
     }

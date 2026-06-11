@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { ZodError } from "zod";
 
 export type ErrorCode =
@@ -8,7 +9,6 @@ export type ErrorCode =
   | "DEVICE_NOT_FOUND"
   | "DEVICE_OFFLINE"
   | "RATE_LIMITED"
-  | "TEMPLATE_NOT_ALLOWED"
   | "OTP_EXPIRED"
   | "OTP_INVALID"
   | "OTP_ATTEMPTS_EXCEEDED"
@@ -37,6 +37,27 @@ export function routeError(error: unknown) {
           code: "VALIDATION_ERROR",
           message: "Request validation failed",
           details: error.issues,
+        },
+      },
+      { status: 400 },
+    );
+  }
+
+  if (error instanceof mongoose.Error.CastError) {
+    return apiError("VALIDATION_ERROR", `Invalid ${error.path}`, 400);
+  }
+
+  if (error instanceof mongoose.Error.ValidationError) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Database validation failed",
+          details: Object.values(error.errors).map((item) => ({
+            path: item.path,
+            message: item.message,
+          })),
         },
       },
       { status: 400 },

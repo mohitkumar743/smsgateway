@@ -1,25 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getRequestIp, requireClient } from "@/lib/auth";
-import { secureToken } from "@/lib/crypto";
+import { maskMobile, secureToken } from "@/lib/crypto";
+import { fcmFailure, messaging } from "@/lib/firebase";
 import { createSmsSignature } from "@/lib/hmac";
-import { generateOtp, hashOtp } from "@/lib/otp";
 import { clientLimitReached, deviceLimitReached } from "@/lib/rateLimit";
 import { apiError, routeError } from "@/lib/response";
-import { fcmFailure, messaging } from "@/lib/firebase";
 import Device from "@/models/Device";
 import OtpRequest from "@/models/OtpRequest";
 import SmsLog from "@/models/SmsLog";
-import { maskMobile } from "@/lib/crypto";
 
 const schema = z.object({
   mobile: z.string().regex(/^\+[1-9]\d{7,14}$/),
-  template: z.string().min(1).max(1000),
-  length: z.number().int().min(4).max(8).default(6),
+  message: z.string().trim().min(1).max(1000),
 });
 
 const ONLINE_WINDOW_MS = 10 * 60 * 1000;
-const OTP_TTL_MS = 5 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,13 +32,6 @@ export async function POST(request: NextRequest) {
       !client.allowedIps.includes(requestIp)
     ) {
       return apiError("UNAUTHORIZED", "Source IP is not allowed", 403);
-    }
-    if (!input.template.includes("{otp}")) {
-      return apiError(
-        "VALIDATION_ERROR",
-        "OTP templates must contain {otp}",
-        400,
-      );
     }
     if (await clientLimitReached(client._id, client.dailyLimit)) {
       return apiError("RATE_LIMITED", "Client daily limit reached", 429);
@@ -84,27 +73,27 @@ export async function POST(request: NextRequest) {
       return apiError("RATE_LIMITED", "All devices are rate limited", 429);
     }
 
-    const otp = generateOtp(input.length);
-    const requestId = secureToken("otp");
-    const message = input.template.replaceAll("{otp}", otp);
+    const requestId = secureToken("msg");
     const now = new Date();
-    const otpRequest = await OtpRequest.create({
+    const messageRequest = await OtpRequest.create({
       requestId,
-      requestType: "otp",
+      requestType: "message",
       clientId: client._id,
       deviceId: selectedDevice._id,
       mobile: input.mobile,
-      otpHash: await hashOtp(otp),
-      message,
+      // Compatibility values for dev servers that still cache the older
+      // OTP-only Mongoose schema. Message requests are never OTP-verified.
+      otpHash: "message:not-applicable",
+      message: input.message,
       status: "queued",
-      expiresAt: new Date(now.getTime() + OTP_TTL_MS),
+      expiresAt: new Date("9999-12-31T23:59:59.999Z"),
     });
 
     const timestamp = Date.now().toString();
     const command = {
       request_id: requestId,
       mobile: input.mobile,
-      message,
+      message: input.message,
       client_id: client.id,
       timestamp,
     };
@@ -117,7 +106,7 @@ export async function POST(request: NextRequest) {
           type: "SEND_SMS",
           request_id: requestId,
           mobile: input.mobile,
-          message,
+          message: input.message,
           client_id: client.id,
           signature,
           timestamp,
@@ -126,13 +115,11 @@ export async function POST(request: NextRequest) {
       });
     } catch (error) {
       const failure = fcmFailure(error);
-      otpRequest.status = "failed";
-      otpRequest.error = `${failure.code}: ${failure.message}`;
-      if (failure.invalidToken) {
-        selectedDevice.status = "inactive";
-      }
+      messageRequest.status = "failed";
+      messageRequest.error = `${failure.code}: ${failure.message}`;
+      if (failure.invalidToken) selectedDevice.status = "inactive";
       await Promise.all([
-        otpRequest.save(),
+        messageRequest.save(),
         selectedDevice.save(),
         SmsLog.create({
           requestId,
@@ -151,11 +138,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    otpRequest.status = "pushed";
+    messageRequest.status = "pushed";
     selectedDevice.lastSentAt = now;
     client.sentToday += 1;
     await Promise.all([
-      otpRequest.save(),
+      messageRequest.save(),
       selectedDevice.save(),
       client.save(),
     ]);

@@ -10,11 +10,6 @@ const schema = z.object({
   name: z.string().trim().min(1).max(100),
   dailyLimit: z.number().int().min(1).max(1_000_000).default(100),
   allowedIps: z.array(z.string().trim().min(1).max(100)).default([]),
-  allowedTemplates: z
-    .array(z.string().min(1).max(1000).refine((value) => value.includes("{otp}"), {
-      message: "Every template must contain {otp}",
-    }))
-    .min(1),
 });
 
 export async function POST(request: NextRequest) {
