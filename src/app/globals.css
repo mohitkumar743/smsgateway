@@ -37,7 +37,7 @@ button { cursor: pointer; }
 .topbar { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 28px; }
 h1 { margin: 4px 0 7px; font-size: clamp(27px, 3vw, 39px); letter-spacing: -.04em; }
 .subtitle { margin: 0; color: var(--muted); }
-.actions { display: flex; gap: 10px; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .button { border: 1px solid var(--line); color: var(--text); background: rgba(255,255,255,.04); border-radius: 10px; padding: 10px 14px; transition: .18s ease; }
 .button:hover { border-color: rgba(110, 231, 183, .4); transform: translateY(-1px); }
 .button.primary { color: #052019; background: var(--accent); border-color: var(--accent); font-weight: 750; }
@@ -67,7 +67,11 @@ tbody tr:hover { background: rgba(255,255,255,.018); }
 .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 99px; padding: 4px 8px; font-size: 11px; color: #a7f3d0; background: rgba(52,211,153,.12); }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .badge.failed, .badge.blocked, .badge.expired { color: #fda4af; background: rgba(251,113,133,.12); }
-.badge.inactive, .badge.queued, .badge.pushed, .badge.sending { color: #fde68a; background: rgba(251,191,36,.11); }
+.badge.inactive, .badge.queued, .badge.pushed, .badge.sending, .badge.not { color: #fde68a; background: rgba(251,191,36,.11); }
+.row-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.health { display: grid; gap: 5px; min-width: 105px; }
+.health .badge { width: fit-content; margin-bottom: 2px; }
+.health span:not(.badge) { color: var(--muted); font-size: 11px; }
 .empty { text-align: center; color: var(--muted); padding: 42px !important; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.66); backdrop-filter: blur(8px); }
 .modal { width: min(570px, 100%); max-height: 90vh; overflow-y: auto; background: #10201d; border: 1px solid rgba(110,231,183,.2); border-radius: 18px; padding: 24px; box-shadow: 0 30px 100px rgba(0,0,0,.5); }

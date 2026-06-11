@@ -33,7 +33,16 @@ const updateSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("client"),
     id: z.string().min(1),
-    status: z.enum(["active", "blocked"]),
+    status: z.enum(["active", "blocked"]).optional(),
+    rotateApiKey: z.literal(true).optional(),
+    allowedTemplates: z
+      .array(
+        z.string().min(1).max(1000).refine((value) => value.includes("{otp}"), {
+          message: "Every template must contain {otp}",
+        }),
+      )
+      .min(1)
+      .optional(),
   }),
   z.object({
     kind: z.literal("device"),
@@ -95,7 +104,9 @@ export async function GET(request: NextRequest) {
           onlineDevices: devices.filter(
             (item) =>
               item.status === "active" &&
-              new Date(item.lastSeen as Date).getTime() >= onlineThreshold,
+              new Date(item.lastSeen as Date).getTime() >= onlineThreshold &&
+              item.health?.smsPermission === true &&
+              item.health?.simReady === true,
           ).length,
           otpRequests: await OtpRequest.countDocuments(),
           sentOtps: await OtpRequest.countDocuments({
@@ -175,14 +186,37 @@ export async function PATCH(request: NextRequest) {
     const input = updateSchema.parse(await request.json());
     await connectDb();
     const model = input.kind === "client" ? Client : Device;
-    const updated = await model.findByIdAndUpdate(
-      input.id,
-      { status: input.status },
-      { new: true, runValidators: true },
-    );
+    const plainApiKey =
+      input.kind === "client" && input.rotateApiKey
+        ? secureToken("client")
+        : null;
+    const update =
+      input.kind === "client"
+        ? {
+            ...(input.status !== undefined && { status: input.status }),
+            ...(plainApiKey !== null && { apiKey: tokenDigest(plainApiKey) }),
+            ...(input.allowedTemplates !== undefined && {
+              allowedTemplates: input.allowedTemplates,
+            }),
+          }
+        : { status: input.status };
+    const updated = await model.findByIdAndUpdate(input.id, update, {
+      new: true,
+      runValidators: true,
+    });
 
     if (!updated) return apiError("NOT_FOUND", `${input.kind} not found`, 404);
-    return NextResponse.json({ success: true, data: { id: updated.id, status: updated.status } });
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: updated.id,
+        status: updated.status,
+        ...(input.kind === "client" && {
+          allowedTemplates: updated.allowedTemplates,
+          ...(plainApiKey !== null && { apiKey: plainApiKey }),
+        }),
+      },
+    });
   } catch (error) {
     return routeError(error);
   }

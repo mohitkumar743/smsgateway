@@ -53,6 +53,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [secret, setSecret] = useState<{ title: string; value: string } | null>(null);
+  const [otpOpen, setOtpOpen] = useState(false);
+  const [templateClient, setTemplateClient] = useState<Item | null>(null);
 
   useEffect(() => {
     setToken(localStorage.getItem("relay_admin_token") || "");
@@ -181,6 +183,90 @@ export default function Home() {
     }
   }
 
+  async function sendOtp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    try {
+      const response = await fetch("/api/otp/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${String(form.get("apiKey") || "")}`,
+        },
+        body: JSON.stringify({
+          mobile: form.get("mobile"),
+          template: form.get("template"),
+          length: Number(form.get("length")),
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error?.message || "Could not send OTP");
+      setOtpOpen(false);
+      setSecret({
+        title: "OTP request ID",
+        value: body.request_id,
+      });
+      await load();
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Could not send OTP");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateTemplates(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!templateClient) return;
+    setLoading(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    try {
+      const allowedTemplates = String(form.get("allowedTemplates") || "")
+        .split("\n")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      await api("/api/admin/manage", {
+        method: "PATCH",
+        body: JSON.stringify({
+          kind: "client",
+          id: templateClient._id,
+          allowedTemplates,
+        }),
+      });
+      setTemplateClient(null);
+      await load();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Could not update templates");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function rotateClientApiKey(client: Item) {
+    if (!window.confirm(`Rotate the API key for ${text(client.name)}? The current key will stop working immediately.`)) {
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api("/api/admin/manage", {
+        method: "PATCH",
+        body: JSON.stringify({
+          kind: "client",
+          id: client._id,
+          rotateApiKey: true,
+        }),
+      });
+      setSecret({ title: "Client API key", value: result.data.apiKey });
+    } catch (rotateError) {
+      setError(rotateError instanceof Error ? rotateError.message : "Could not rotate API key");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const visible = useMemo(() => {
     if (!data || tab === "overview") return [];
     const query = search.toLowerCase();
@@ -233,24 +319,29 @@ export default function Home() {
           <div><span className="eyebrow">GATEWAY CONTROL</span><h1>{currentLabel}</h1><p className="subtitle">Monitor traffic and manage access from one place.</p></div>
           <div className="actions">
             <button className="button" onClick={() => void load()} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button>
-            <button className="button primary" onClick={() => setModal(tab === "devices" ? "device" : tab === "admins" ? "admin" : "client")}>
-              + Create {tab === "devices" ? "device" : tab === "admins" ? "admin" : "client"}
-            </button>
+            <button className="button primary" onClick={() => { setError(""); setOtpOpen(true); }}>Send OTP</button>
+            {(tab === "clients" || tab === "devices" || tab === "admins") && (
+              <button className="button" onClick={() => setModal(tab === "devices" ? "device" : tab === "admins" ? "admin" : "client")}>
+                + Create {tab === "devices" ? "device" : tab === "admins" ? "admin" : "client"}
+              </button>
+            )}
           </div>
         </header>
 
         {error && <p className="error">{error}</p>}
         {!data ? <section className="panel"><div className="empty">Loading operational data...</div></section> :
           tab === "overview" ? <Overview data={data} setTab={setTab} /> :
-          <DataTable tab={tab} items={visible} search={search} setSearch={setSearch} changeStatus={changeStatus} loading={loading} />}
+          <DataTable tab={tab} items={visible} search={search} setSearch={setSearch} changeStatus={changeStatus} editTemplates={(client) => { setError(""); setTemplateClient(client); }} rotateClientApiKey={rotateClientApiKey} loading={loading} />}
       </main>
 
       {modal && <CreateModal kind={modal} close={() => setModal(null)} create={create} loading={loading} error={error} />}
+      {otpOpen && <OtpModal close={() => setOtpOpen(false)} send={sendOtp} loading={loading} error={error} />}
+      {templateClient && <TemplateModal client={templateClient} close={() => setTemplateClient(null)} save={updateTemplates} loading={loading} error={error} />}
       {secret && (
         <div className="modal-backdrop">
           <section className="modal">
             <span className="eyebrow">DISPLAYED ONCE</span><h2>{secret.title}</h2>
-            <p>Store this credential securely. It cannot be retrieved from the database later.</p>
+            <p>{secret.title === "OTP request ID" ? "The OTP command was queued successfully." : "Store this credential securely. It cannot be retrieved from the database later."}</p>
             <div className="secret mono">{secret.value}</div>
             <div className="modal-actions">
               <button className="button" onClick={() => navigator.clipboard.writeText(secret.value)}>Copy</button>
@@ -287,9 +378,12 @@ function Overview({ data, setTab }: { data: DashboardData; setTab: (tab: Tab) =>
   );
 }
 
-function DataTable({ tab, items, search, setSearch, changeStatus, loading }: {
+function DataTable({ tab, items, search, setSearch, changeStatus, editTemplates, rotateClientApiKey, loading }: {
   tab: Exclude<Tab, "overview">; items: Item[]; search: string; setSearch: (value: string) => void;
-  changeStatus: (kind: "client" | "device", id: string, status: string) => void; loading: boolean;
+  changeStatus: (kind: "client" | "device", id: string, status: string) => void;
+  editTemplates: (client: Item) => void;
+  rotateClientApiKey: (client: Item) => void;
+  loading: boolean;
 }) {
   const headers: Record<typeof tab, string[]> = {
     clients: ["Name", "Status", "Daily limit", "Templates", "Allowed IPs", "Created", "Action"],
@@ -303,18 +397,19 @@ function DataTable({ tab, items, search, setSearch, changeStatus, loading }: {
       <div className="panel-head"><h2>{items.length} records</h2><input className="search" placeholder={`Search ${tab.replace(/([A-Z])/g, " $1").toLowerCase()}...`} value={search} onChange={(e) => setSearch(e.target.value)} /></div>
       <div className="table-wrap"><table><thead><tr>{headers[tab].map((header) => <th key={header}>{header}</th>)}</tr></thead>
         <tbody>{items.length === 0 ? <tr><td className="empty" colSpan={headers[tab].length}>No matching records.</td></tr> :
-          items.map((item) => <Row key={item._id} tab={tab} item={item} changeStatus={changeStatus} loading={loading} />)}</tbody>
+          items.map((item) => <Row key={item._id} tab={tab} item={item} changeStatus={changeStatus} editTemplates={editTemplates} rotateClientApiKey={rotateClientApiKey} loading={loading} />)}</tbody>
       </table></div>
     </section>
   );
 }
 
-function Row({ tab, item, changeStatus, loading }: { tab: Exclude<Tab, "overview">; item: Item; changeStatus: (kind: "client" | "device", id: string, status: string) => void; loading: boolean }) {
-  if (tab === "clients") return <tr><td><strong>{text(item.name)}</strong></td><td><Badge value={item.status} /></td><td>{text(item.dailyLimit)}</td><td>{Array.isArray(item.allowedTemplates) ? item.allowedTemplates.length : 0}</td><td>{Array.isArray(item.allowedIps) && item.allowedIps.length ? item.allowedIps.join(", ") : "Any"}</td><td className="muted">{date(item.createdAt)}</td><td><button disabled={loading} className={`button small ${item.status === "active" ? "danger" : ""}`} onClick={() => changeStatus("client", item._id, item.status === "active" ? "blocked" : "active")}>{item.status === "active" ? "Block" : "Activate"}</button></td></tr>;
+function Row({ tab, item, changeStatus, editTemplates, rotateClientApiKey, loading }: { tab: Exclude<Tab, "overview">; item: Item; changeStatus: (kind: "client" | "device", id: string, status: string) => void; editTemplates: (client: Item) => void; rotateClientApiKey: (client: Item) => void; loading: boolean }) {
+  if (tab === "clients") return <tr><td><strong>{text(item.name)}</strong></td><td><Badge value={item.status} /></td><td>{text(item.dailyLimit)}</td><td>{Array.isArray(item.allowedTemplates) ? item.allowedTemplates.length : 0}</td><td>{Array.isArray(item.allowedIps) && item.allowedIps.length ? item.allowedIps.join(", ") : "Any"}</td><td className="muted">{date(item.createdAt)}</td><td><div className="row-actions"><button disabled={loading} className="button small" onClick={() => editTemplates(item)}>Templates</button><button disabled={loading} className="button small" onClick={() => rotateClientApiKey(item)}>Rotate key</button><button disabled={loading} className={`button small ${item.status === "active" ? "danger" : ""}`} onClick={() => changeStatus("client", item._id, item.status === "active" ? "blocked" : "active")}>{item.status === "active" ? "Block" : "Activate"}</button></div></td></tr>;
   if (tab === "devices") {
     const health = item.health as Record<string, boolean> | undefined;
-    const ready = health?.smsPermission && health?.simReady && health?.foregroundServiceRunning;
-    return <tr><td><strong>{text(item.deviceName)}</strong><div className="muted">{text(item.androidVersion)}</div></td><td>{text(item.phoneNumber)}</td><td><Badge value={item.status} /></td><td className="muted">{date(item.lastSeen)}</td><td>{text(item.sentToday)} / {text(item.dailyLimit)}</td><td><Badge value={ready ? "ready" : "check"} /></td><td><button disabled={loading} className={`button small ${item.status === "blocked" ? "" : "danger"}`} onClick={() => changeStatus("device", item._id, item.status === "blocked" ? "active" : "blocked")}>{item.status === "blocked" ? "Activate" : "Block"}</button></td></tr>;
+    const recentlySeen = Date.now() - new Date(String(item.lastSeen)).getTime() <= 10 * 60 * 1000;
+    const ready = item.status === "active" && recentlySeen && health?.smsPermission && health?.simReady;
+    return <tr><td><strong>{text(item.deviceName)}</strong><div className="muted">{text(item.androidVersion)}</div></td><td>{text(item.phoneNumber)}</td><td><Badge value={item.status} /></td><td className="muted">{date(item.lastSeen)}</td><td>{text(item.sentToday)} / {text(item.dailyLimit)}</td><td><div className="health"><Badge value={ready ? "ready" : "not ready"} /><span>SMS {health?.smsPermission ? "on" : "off"}</span><span>SIM {health?.simReady ? "ready" : "not ready"}</span><span>Service {health?.foregroundServiceRunning ? "on" : "off"}</span></div></td><td><button disabled={loading} className={`button small ${item.status === "blocked" ? "" : "danger"}`} onClick={() => changeStatus("device", item._id, item.status === "blocked" ? "active" : "blocked")}>{item.status === "blocked" ? "Activate" : "Block"}</button></td></tr>;
   }
   if (tab === "otpRequests") return <tr><td className="mono">{text(item.requestId)}</td><td>{text(item.clientId)}</td><td>{text(item.deviceId)}</td><td>{text(item.mobile)}</td><td><Badge value={item.status} /></td><td>{text(item.attempts)}</td><td className="muted">{date(item.createdAt)}</td></tr>;
   if (tab === "smsLogs") return <tr><td className="mono">{text(item.requestId)}</td><td>{text(item.clientId)}</td><td>{text(item.deviceId)}</td><td>{text(item.mobileMasked)}</td><td><Badge value={item.status} /></td><td className="muted">{text(item.error)}</td><td className="muted">{date(item.createdAt)}</td></tr>;
@@ -345,6 +440,29 @@ function CreateModal({ kind, close, create, loading, error }: { kind: Exclude<Mo
           <div className="field full"><label>Firebase FCM token</label><textarea name="fcmToken" minLength={20} required /></div>
         </>}
       </div>{error && <p className="error">{error}</p>}<div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button className="button primary" disabled={loading}>{loading ? "Creating..." : `Create ${kind}`}</button></div></form>
+    </section>
+  </div>;
+}
+
+function OtpModal({ close, send, loading, error }: { close: () => void; send: (event: FormEvent<HTMLFormElement>) => void; loading: boolean; error: string }) {
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <section className="modal"><span className="eyebrow">TEST DELIVERY</span><h2>Send OTP</h2><p>Use the one-time client API key. The template must exactly match one allowed for that client.</p>
+      <form onSubmit={send}><div className="form-grid">
+        <div className="field full"><label>Client API key</label><input name="apiKey" type="password" required /></div>
+        <div className="field"><label>Mobile number</label><input name="mobile" placeholder="+919876543210" pattern="\+[1-9][0-9]{7,14}" required /></div>
+        <div className="field"><label>OTP length</label><input name="length" type="number" min="4" max="8" defaultValue="6" required /></div>
+        <div className="field full"><label>Allowed template</label><textarea name="template" defaultValue="Your verification code is {otp}" required /></div>
+      </div>{error && <p className="error">{error}</p>}<div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button className="button primary" disabled={loading}>{loading ? "Sending..." : "Send OTP"}</button></div></form>
+    </section>
+  </div>;
+}
+
+function TemplateModal({ client, close, save, loading, error }: { client: Item; close: () => void; save: (event: FormEvent<HTMLFormElement>) => void; loading: boolean; error: string }) {
+  const templates = Array.isArray(client.allowedTemplates) ? client.allowedTemplates.join("\n") : "";
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <section className="modal"><span className="eyebrow">CLIENT CONFIGURATION</span><h2>Edit templates</h2><p>{text(client.name)}. Each line must include <span className="mono">{"{otp}"}</span>.</p>
+      <form onSubmit={save}><div className="field"><label>Allowed templates, one per line</label><textarea name="allowedTemplates" defaultValue={templates} required /></div>
+        {error && <p className="error">{error}</p>}<div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button className="button primary" disabled={loading}>{loading ? "Saving..." : "Save templates"}</button></div></form>
     </section>
   </div>;
 }
