@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { withApiLogging } from "@/lib/apiLogger";
 import { secureToken, tokenDigest } from "@/lib/crypto";
 import { connectDb } from "@/lib/db";
 import { getEnv } from "@/lib/env";
@@ -14,7 +15,7 @@ const schema = z.object({
   fcmToken: z.string().trim().min(20).max(4096),
 });
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const input = schema.parse({
@@ -48,3 +49,5 @@ export async function POST(request: NextRequest) {
     return routeError(error);
   }
 }
+
+export const POST = withApiLogging(postHandler);

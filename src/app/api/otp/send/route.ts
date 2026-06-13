@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { withApiLogging } from "@/lib/apiLogger";
 import { getRequestIp, requireClient } from "@/lib/auth";
 import { secureToken } from "@/lib/crypto";
 import { createSmsSignature } from "@/lib/hmac";
@@ -21,7 +22,7 @@ const schema = z.object({
 const ONLINE_WINDOW_MS = 10 * 60 * 1000;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const client = await requireClient(request);
     if (!client) return apiError("UNAUTHORIZED", "Invalid client API key", 401);
@@ -168,3 +169,5 @@ export async function POST(request: NextRequest) {
     return routeError(error);
   }
 }
+
+export const POST = withApiLogging(postHandler);

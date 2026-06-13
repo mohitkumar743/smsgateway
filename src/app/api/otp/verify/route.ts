@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { withApiLogging } from "@/lib/apiLogger";
 import { requireClient } from "@/lib/auth";
 import { compareOtp } from "@/lib/otp";
 import { apiError, routeError } from "@/lib/response";
@@ -10,7 +11,7 @@ const schema = z.object({
   otp: z.string().regex(/^\d{4,8}$/),
 });
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const client = await requireClient(request);
     if (!client) return apiError("UNAUTHORIZED", "Invalid client API key", 401);
@@ -70,3 +71,5 @@ export async function POST(request: NextRequest) {
     return routeError(error);
   }
 }
+
+export const POST = withApiLogging(postHandler);

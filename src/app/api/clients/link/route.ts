@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withApiLogging } from "@/lib/apiLogger";
 import { requireAdmin } from "@/lib/auth";
-import { encryptSecret, secureToken, tokenDigest } from "@/lib/crypto";
+import { decryptSecret } from "@/lib/crypto";
 import { connectDb } from "@/lib/db";
 import { apiError, routeError } from "@/lib/response";
 import Client from "@/models/Client";
 
 const schema = z.object({
-  name: z.string().trim().min(1).max(100),
-  dailyLimit: z.number().int().min(1).max(1_000_000).default(100),
-  allowedIps: z.array(z.string().trim().min(1).max(100)).default([]),
+  clientId: z.string().min(1),
 });
 
 async function postHandler(request: NextRequest) {
@@ -21,21 +19,26 @@ async function postHandler(request: NextRequest) {
 
     const input = schema.parse(await request.json());
     await connectDb();
-    const plainApiKey = secureToken("client");
-    const client = await Client.create({
-      ...input,
-      apiKey: tokenDigest(plainApiKey),
-      apiKeyEncrypted: encryptSecret(plainApiKey),
-    });
+    const client = await Client.findById(input.clientId).select("name status +apiKeyEncrypted");
 
-    return NextResponse.json(
-      {
-        success: true,
-        client_id: client.id,
-        api_key: plainApiKey,
+    if (!client) return apiError("NOT_FOUND", "Client not found", 404);
+    if (client.status !== "active") return apiError("CLIENT_BLOCKED", "Client is blocked", 403);
+    if (!client.apiKeyEncrypted) {
+      return apiError(
+        "KEY_NOT_STORED",
+        "Rotate this client's API key once before linking a device",
+        409,
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        clientId: client.id,
+        clientName: client.name,
+        apiKey: decryptSecret(client.apiKeyEncrypted),
       },
-      { status: 201 },
-    );
+    });
   } catch (error) {
     return routeError(error);
   }

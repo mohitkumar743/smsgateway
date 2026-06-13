@@ -1,11 +1,13 @@
 import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { withApiLogging } from "@/lib/apiLogger";
 import { requireAdmin } from "@/lib/auth";
-import { secureToken, tokenDigest } from "@/lib/crypto";
+import { encryptSecret, secureToken, tokenDigest } from "@/lib/crypto";
 import { connectDb } from "@/lib/db";
 import { apiError, routeError } from "@/lib/response";
 import Admin from "@/models/Admin";
+import ApiLog from "@/models/ApiLog";
 import Client from "@/models/Client";
 import Device from "@/models/Device";
 import OtpRequest from "@/models/OtpRequest";
@@ -43,17 +45,17 @@ const updateSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export async function GET(request: NextRequest) {
+async function getHandler(request: NextRequest) {
   try {
     if (!(await requireAdmin(request))) {
       return apiError("UNAUTHORIZED", "Admin authentication required", 401);
     }
 
     await connectDb();
-    const [admins, clients, devices, otpRequests, smsLogs] = await Promise.all([
+    const [admins, clients, devices, otpRequests, smsLogs, apiLogs] = await Promise.all([
       Admin.find().select("email createdAt updatedAt").sort({ createdAt: -1 }).lean(),
       Client.find()
-        .select("name status dailyLimit sentToday allowedIps createdAt updatedAt")
+        .select("name status dailyLimit sentToday allowedIps createdAt updatedAt +apiKeyEncrypted")
         .sort({ createdAt: -1 })
         .limit(250)
         .lean(),
@@ -80,6 +82,11 @@ export async function GET(request: NextRequest) {
         .sort({ createdAt: -1 })
         .limit(250)
         .lean(),
+      ApiLog.find()
+        .select("reportName method path statusCode success durationMs ip requestData responseData errorCode createdAt")
+        .sort({ createdAt: -1 })
+        .limit(500)
+        .lean(),
     ]);
 
     const now = Date.now();
@@ -105,12 +112,17 @@ export async function GET(request: NextRequest) {
             status: { $in: ["sent", "delivered", "verified"] },
           }),
           failedOtps: await OtpRequest.countDocuments({ status: "failed" }),
+          apiErrors: await ApiLog.countDocuments({ success: false }),
         },
         admins,
-        clients,
+        clients: clients.map(({ apiKeyEncrypted, ...client }) => ({
+          ...client,
+          hasStoredApiKey: Boolean(apiKeyEncrypted),
+        })),
         devices,
         otpRequests,
         smsLogs,
+        apiLogs,
       },
     });
   } catch (error) {
@@ -118,7 +130,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     if (!(await requireAdmin(request))) {
       return apiError("UNAUTHORIZED", "Admin authentication required", 401);
@@ -169,7 +181,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function PATCH(request: NextRequest) {
+async function patchHandler(request: NextRequest) {
   try {
     if (!(await requireAdmin(request))) {
       return apiError("UNAUTHORIZED", "Admin authentication required", 401);
@@ -183,7 +195,10 @@ export async function PATCH(request: NextRequest) {
         input.id,
         {
           ...(input.status !== undefined && { status: input.status }),
-          ...(plainApiKey !== null && { apiKey: tokenDigest(plainApiKey) }),
+          ...(plainApiKey !== null && {
+            apiKey: tokenDigest(plainApiKey),
+            apiKeyEncrypted: encryptSecret(plainApiKey),
+          }),
         },
         { new: true, runValidators: true },
       );
@@ -213,3 +228,7 @@ export async function PATCH(request: NextRequest) {
     return routeError(error);
   }
 }
+
+export const GET = withApiLogging(getHandler);
+export const POST = withApiLogging(postHandler);
+export const PATCH = withApiLogging(patchHandler);

@@ -53,6 +53,7 @@ h1 { margin: 4px 0 7px; font-size: clamp(27px, 3vw, 39px); letter-spacing: -.04e
 .panel { overflow: hidden; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
 .panel-head h2 { font-size: 16px; margin: 0; }
+.panel-description { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
 .search { width: min(310px, 45vw); background: rgba(0,0,0,.18); color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; outline: none; }
 .search:focus, .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(52,211,153,.1); }
 .table-wrap { overflow-x: auto; }
@@ -69,6 +70,10 @@ tbody tr:hover { background: rgba(255,255,255,.018); }
 .badge.failed, .badge.blocked, .badge.expired { color: #fda4af; background: rgba(251,113,133,.12); }
 .badge.inactive, .badge.queued, .badge.pushed, .badge.sending, .badge.not { color: #fde68a; background: rgba(251,191,36,.11); }
 .row-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.http-status { display: inline-flex; min-width: 42px; justify-content: center; padding: 4px 8px; border-radius: 7px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; font-weight: 700; }
+.http-status.success { color: #a7f3d0; background: rgba(52,211,153,.12); }
+.http-status.failed { color: #fda4af; background: rgba(251,113,133,.12); }
+.log-data { width: 260px; max-height: 150px; margin: 0; padding: 9px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; color: #bdd0c8; background: rgba(0,0,0,.2); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .health { display: grid; gap: 5px; min-width: 105px; }
 .health .badge { width: fit-content; margin-bottom: 2px; }
 .health span:not(.badge) { color: var(--muted); font-size: 11px; }
@@ -81,10 +86,23 @@ tbody tr:hover { background: rgba(255,255,255,.018); }
 .field { display: grid; gap: 7px; }
 .field.full { grid-column: 1 / -1; }
 .field label { color: #bdd0c8; font-size: 12px; }
+.field-hint { color: var(--muted); font-size: 11px; line-height: 1.45; }
 .field input, .field textarea, .field select { width: 100%; color: var(--text); background: rgba(0,0,0,.2); border: 1px solid var(--line); border-radius: 9px; padding: 10px 11px; outline: none; }
 .field textarea { resize: vertical; min-height: 88px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .secret { margin: 16px 0; padding: 13px; border-radius: 10px; word-break: break-all; background: rgba(0,0,0,.25); border: 1px dashed rgba(110,231,183,.35); color: #a7f3d0; }
+.link-device-modal { width: min(620px, 100%); }
+.qr-frame { width: fit-content; margin: 22px auto; padding: 14px; line-height: 0; border-radius: 16px; background: #fff; box-shadow: 0 18px 50px rgba(0,0,0,.3); }
+.link-details { display: grid; gap: 10px; }
+.link-details > div { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.18); }
+.link-details span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+.link-details code { color: #a7f3d0; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.integration-content { max-width: 850px; padding: 24px 20px 28px; }
+.integration-generate { margin-top: 16px; }
+.code-head { display: flex; align-items: center; justify-content: space-between; margin-top: 24px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
+.demo-url { margin-top: 8px; padding: 14px; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,.24); }
+.demo-url a { color: #7dd3fc; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; line-height: 1.6; }
+.code-block { margin: 8px 0; padding: 18px; overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; color: #a7f3d0; background: rgba(0,0,0,.3); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; line-height: 1.7; white-space: pre; }
 .error { color: #fda4af !important; font-size: 13px; }
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .login-card { width: min(430px, 100%); padding: 34px; border: 1px solid var(--line); background: var(--panel); border-radius: 20px; box-shadow: 0 30px 100px rgba(0,0,0,.32); }

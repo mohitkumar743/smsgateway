@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { withApiLogging } from "@/lib/apiLogger";
 import { requireDevice } from "@/lib/auth";
 import { apiError, routeError } from "@/lib/response";
 
@@ -10,7 +11,7 @@ const schema = z.object({
   foregroundServiceRunning: z.boolean().optional(),
 });
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const device = await requireDevice(request);
     if (!device) return apiError("UNAUTHORIZED", "Invalid device token", 401);
@@ -54,3 +55,5 @@ export async function POST(request: NextRequest) {
     return routeError(error);
   }
 }
+
+export const POST = withApiLogging(postHandler);

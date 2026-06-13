@@ -1,12 +1,16 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 
-type Tab = "overview" | "clients" | "devices" | "otpRequests" | "smsLogs" | "admins";
-type DataTab = Exclude<Tab, "overview">;
+type Tab = "overview" | "clients" | "devices" | "otpRequests" | "smsLogs" | "apiLogs" | "integration" | "admins";
+type DataTab = Exclude<Tab, "overview" | "integration">;
 type Modal = "client" | "device" | "admin" | null;
 type RecordValue = string | number | boolean | null | undefined | Date;
 type Item = Record<string, unknown> & { _id: string; status?: string; createdAt?: string };
+type Secret =
+  | { kind: "value"; title: string; value: string }
+  | { kind: "deviceLink"; title: string; value: string; apiUrl: string; clientId: string; clientName: string };
 type DashboardData = {
   stats: Record<string, number>;
   admins: Item[];
@@ -14,6 +18,7 @@ type DashboardData = {
   devices: Item[];
   otpRequests: Item[];
   smsLogs: Item[];
+  apiLogs: Item[];
 };
 
 const nav: { id: Tab; label: string; short: string }[] = [
@@ -22,8 +27,12 @@ const nav: { id: Tab; label: string; short: string }[] = [
   { id: "devices", label: "Devices", short: "03" },
   { id: "otpRequests", label: "SMS requests", short: "04" },
   { id: "smsLogs", label: "SMS logs", short: "05" },
-  { id: "admins", label: "Administrators", short: "06" },
+  { id: "apiLogs", label: "Log report", short: "06" },
+  { id: "integration", label: "Integration", short: "07" },
+  { id: "admins", label: "Administrators", short: "08" },
 ];
+
+const GATEWAY_URL = "https://smsgateway-seven.vercel.app";
 
 function text(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -53,7 +62,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [secret, setSecret] = useState<{ title: string; value: string } | null>(null);
+  const [secret, setSecret] = useState<Secret | null>(null);
   const [otpOpen, setOtpOpen] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false);
 
@@ -139,25 +148,23 @@ export default function Home() {
           allowedIps: String(form.get("allowedIps") || "").split("\n").map((v) => v.trim()).filter(Boolean),
         };
         const result = await api("/api/clients/create", { method: "POST", body: JSON.stringify(body) });
-        setSecret({ title: "Client API key", value: result.api_key });
+        setSecret({ kind: "value", title: "Client API key", value: result.api_key });
+      } else if (modal === "device") {
+        const result = await api("/api/clients/link", {
+          method: "POST",
+          body: JSON.stringify({ clientId: form.get("clientId") }),
+        });
+          setSecret({
+            kind: "deviceLink",
+            title: "Link device",
+            value: result.data.apiKey,
+            apiUrl: GATEWAY_URL,
+            clientId: result.data.clientId,
+            clientName: result.data.clientName,
+          });
       } else {
-        const body =
-          modal === "admin"
-            ? { kind: "admin", email: form.get("email"), password: form.get("password") }
-            : {
-                kind: "device",
-                deviceName: form.get("deviceName"),
-                phoneNumber: form.get("phoneNumber"),
-                androidVersion: form.get("androidVersion"),
-                appVersion: form.get("appVersion"),
-                fcmToken: form.get("fcmToken"),
-                dailyLimit: Number(form.get("dailyLimit")),
-                perMinuteLimit: Number(form.get("perMinuteLimit")),
-              };
-        const result = await api("/api/admin/manage", { method: "POST", body: JSON.stringify(body) });
-        if (modal === "device") {
-          setSecret({ title: "Device token", value: result.data.deviceToken });
-        }
+        const body = { kind: "admin", email: form.get("email"), password: form.get("password") };
+        await api("/api/admin/manage", { method: "POST", body: JSON.stringify(body) });
       }
       setModal(null);
       await load();
@@ -205,6 +212,7 @@ export default function Home() {
       if (!response.ok) throw new Error(body.error?.message || "Could not send OTP");
       setOtpOpen(false);
       setSecret({
+        kind: "value",
         title: "OTP request ID",
         value: body.request_id,
       });
@@ -236,7 +244,7 @@ export default function Home() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error?.message || "Could not send message");
       setMessageOpen(false);
-      setSecret({ title: "SMS request ID", value: body.request_id });
+      setSecret({ kind: "value", title: "SMS request ID", value: body.request_id });
       await load();
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send message");
@@ -260,7 +268,8 @@ export default function Home() {
           rotateApiKey: true,
         }),
       });
-      setSecret({ title: "Client API key", value: result.data.apiKey });
+      setSecret({ kind: "value", title: "Client API key", value: result.data.apiKey });
+      await load();
     } catch (rotateError) {
       setError(rotateError instanceof Error ? rotateError.message : "Could not rotate API key");
     } finally {
@@ -269,7 +278,7 @@ export default function Home() {
   }
 
   const visible = useMemo(() => {
-    if (!data || tab === "overview") return [];
+    if (!data || tab === "overview" || tab === "integration") return [];
     const query = search.toLowerCase();
     return data[tab].filter((item) => JSON.stringify(item).toLowerCase().includes(query));
   }, [data, search, tab]);
@@ -324,7 +333,7 @@ export default function Home() {
             <button className="button" onClick={() => { setError(""); setOtpOpen(true); }}>Send OTP</button>
             {(tab === "clients" || tab === "devices" || tab === "admins") && (
               <button className="button" onClick={() => setModal(tab === "devices" ? "device" : tab === "admins" ? "admin" : "client")}>
-                + Create {tab === "devices" ? "device" : tab === "admins" ? "admin" : "client"}
+                + {tab === "devices" ? "Add device" : `Create ${tab === "admins" ? "admin" : "client"}`}
               </button>
             )}
           </div>
@@ -333,23 +342,28 @@ export default function Home() {
         {error && <p className="error">{error}</p>}
         {!data ? <section className="panel"><div className="empty">Loading operational data...</div></section> :
           tab === "overview" ? <Overview data={data} setTab={setTab} /> :
+          tab === "integration" ? <Integration clients={data.clients} api={api} /> :
           <DataTable tab={tab} items={visible} search={search} setSearch={setSearch} changeStatus={changeStatus} rotateClientApiKey={rotateClientApiKey} loading={loading} />}
       </main>
 
-      {modal && <CreateModal kind={modal} close={() => setModal(null)} create={create} loading={loading} error={error} />}
+      {modal && <CreateModal kind={modal} close={() => setModal(null)} create={create} loading={loading} error={error} clients={data?.clients || []} />}
       {otpOpen && <OtpModal close={() => setOtpOpen(false)} send={sendOtp} loading={loading} error={error} />}
       {messageOpen && <MessageModal close={() => setMessageOpen(false)} send={sendMessage} loading={loading} error={error} />}
       {secret && (
         <div className="modal-backdrop">
-          <section className="modal">
-            <span className="eyebrow">DISPLAYED ONCE</span><h2>{secret.title}</h2>
-            <p>{secret.title.endsWith("request ID") ? "The SMS command was queued successfully." : "Store this credential securely. It cannot be retrieved from the database later."}</p>
-            <div className="secret mono">{secret.value}</div>
-            <div className="modal-actions">
-              <button className="button" onClick={() => navigator.clipboard.writeText(secret.value)}>Copy</button>
-              <button className="button primary" onClick={() => setSecret(null)}>Done</button>
-            </div>
-          </section>
+          {secret.kind === "deviceLink" ? (
+            <DeviceLinkModal secret={secret} close={() => setSecret(null)} />
+          ) : (
+            <section className="modal">
+              <span className="eyebrow">DISPLAYED ONCE</span><h2>{secret.title}</h2>
+              <p>{secret.title.endsWith("request ID") ? "The SMS command was queued successfully." : "Store this credential securely. It cannot be retrieved from the database later."}</p>
+              <div className="secret mono">{secret.value}</div>
+              <div className="modal-actions">
+                <button className="button" onClick={() => navigator.clipboard.writeText(secret.value)}>Copy</button>
+                <button className="button primary" onClick={() => setSecret(null)}>Done</button>
+              </div>
+            </section>
+          )}
         </div>
       )}
     </div>
@@ -391,6 +405,7 @@ function DataTable({ tab, items, search, setSearch, changeStatus, rotateClientAp
     devices: ["Device", "Phone", "Status", "Last seen", "Usage", "Health", "Action"],
     otpRequests: ["Request", "Client", "Device", "Mobile", "Status", "Attempts", "Created"],
     smsLogs: ["Request", "Client", "Device", "Mobile", "Status", "Error", "Created"],
+    apiLogs: ["Report name", "Status", "Duration", "IP", "Request", "Response", "Created"],
     admins: ["Email", "Created", "Updated"],
   };
   return (
@@ -414,12 +429,19 @@ function Row({ tab, item, changeStatus, rotateClientApiKey, loading }: { tab: Da
   }
   if (tab === "otpRequests") return <tr><td className="mono">{text(item.requestId)}<div className="muted">{text(item.requestType || "otp")}</div></td><td>{text(item.clientId)}</td><td>{text(item.deviceId)}</td><td>{text(item.mobile)}</td><td><Badge value={item.status} /></td><td>{text(item.attempts)}</td><td className="muted">{date(item.createdAt)}</td></tr>;
   if (tab === "smsLogs") return <tr><td className="mono">{text(item.requestId)}</td><td>{text(item.clientId)}</td><td>{text(item.deviceId)}</td><td>{text(item.mobileMasked)}</td><td><Badge value={item.status} /></td><td className="muted">{text(item.error)}</td><td className="muted">{date(item.createdAt)}</td></tr>;
+  if (tab === "apiLogs") return <tr><td><strong>{text(item.reportName)}</strong><div className="muted mono">{text(item.method)} {text(item.path)}</div></td><td><span className={`http-status ${Number(item.statusCode) >= 400 ? "failed" : "success"}`}>{text(item.statusCode)}</span><div className="muted">{text(item.errorCode)}</div></td><td>{text(item.durationMs)} ms</td><td className="mono">{text(item.ip)}</td><td><pre className="log-data">{formatLogData(item.requestData)}</pre></td><td><pre className="log-data">{formatLogData(item.responseData)}</pre></td><td className="muted">{date(item.createdAt)}</td></tr>;
   return <tr><td><strong>{text(item.email)}</strong></td><td className="muted">{date(item.createdAt)}</td><td className="muted">{date(item.updatedAt)}</td></tr>;
 }
 
-function CreateModal({ kind, close, create, loading, error }: { kind: Exclude<Modal, null>; close: () => void; create: (event: FormEvent<HTMLFormElement>) => void; loading: boolean; error: string }) {
+function formatLogData(value: unknown) {
+  if (value === null || value === undefined) return "—";
+  const result = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return result.length > 900 ? `${result.slice(0, 900)}...` : result;
+}
+
+function CreateModal({ kind, close, create, loading, error, clients }: { kind: Exclude<Modal, null>; close: () => void; create: (event: FormEvent<HTMLFormElement>) => void; loading: boolean; error: string; clients: Item[] }) {
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-    <section className="modal"><span className="eyebrow">NEW {kind.toUpperCase()}</span><h2>Create {kind}</h2><p>Configure the record below. Required fields are validated by the API.</p>
+    <section className="modal"><span className="eyebrow">{kind === "device" ? "DEVICE CONNECTION" : `NEW ${kind.toUpperCase()}`}</span><h2>{kind === "device" ? "Add device" : `Create ${kind}`}</h2><p>{kind === "device" ? "Choose the client whose API access should be added to the phone." : "Configure the record below. Required fields are validated by the API."}</p>
       <form onSubmit={create}><div className="form-grid">
         {kind === "client" && <>
           <div className="field full"><label>Client name</label><input name="name" required maxLength={100} /></div>
@@ -431,17 +453,105 @@ function CreateModal({ kind, close, create, loading, error }: { kind: Exclude<Mo
           <div className="field full"><label>Password</label><input name="password" type="password" required minLength={8} /></div>
         </>}
         {kind === "device" && <>
-          <div className="field"><label>Device name</label><input name="deviceName" required /></div>
-          <div className="field"><label>Phone number</label><input name="phoneNumber" placeholder="+919876543210" required /></div>
-          <div className="field"><label>Android version</label><input name="androidVersion" /></div>
-          <div className="field"><label>App version</label><input name="appVersion" /></div>
-          <div className="field"><label>Daily limit</label><input name="dailyLimit" type="number" min="1" defaultValue="100" required /></div>
-          <div className="field"><label>Per-minute limit</label><input name="perMinuteLimit" type="number" min="1" defaultValue="5" required /></div>
-          <div className="field full"><label>Firebase FCM token</label><textarea name="fcmToken" minLength={20} required /></div>
+          <div className="field full"><label>API URL</label><input name="gatewayUrl" type="url" value={GATEWAY_URL} readOnly /><span className="field-hint">This production URL will be included in the QR code automatically.</span></div>
+          <div className="field full"><label>Client</label><select name="clientId" required defaultValue="">
+            <option value="" disabled>Select a client</option>
+            {clients.filter((client) => client.status === "active").map((client) => (
+              <option key={client._id} value={client._id}>{text(client.name)}{client.hasStoredApiKey ? "" : " - rotate key first"}</option>
+            ))}
+          </select></div>
         </>}
-      </div>{error && <p className="error">{error}</p>}<div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button className="button primary" disabled={loading}>{loading ? "Creating..." : `Create ${kind}`}</button></div></form>
+      </div>{error && <p className="error">{error}</p>}<div className="modal-actions"><button type="button" className="button" onClick={close}>Cancel</button><button className="button primary" disabled={loading}>{loading ? (kind === "device" ? "Preparing..." : "Creating...") : kind === "device" ? "Show QR code" : `Create ${kind}`}</button></div></form>
     </section>
   </div>;
+}
+
+function Integration({ clients, api }: { clients: Item[]; api: (path: string, options?: RequestInit) => Promise<Record<string, any>> }) {
+  const [clientId, setClientId] = useState("");
+  const [curl, setCurl] = useState("");
+  const [demoUrl, setDemoUrl] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function generateCurl() {
+    if (!clientId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api("/api/clients/link", {
+        method: "POST",
+        body: JSON.stringify({ clientId }),
+      });
+      const params = new URLSearchParams({
+        key: result.data.apiKey,
+        phone: "+919876543210",
+        message: "Hello from SMS Gateway",
+      });
+      setDemoUrl(`${GATEWAY_URL}/api/messages/send?${params.toString()}`);
+      setCurl(`curl --get "${GATEWAY_URL}/api/messages/send" \\
+  --data-urlencode "key=${result.data.apiKey}" \\
+  --data-urlencode "phone=+919876543210" \\
+  --data-urlencode "message=Hello from SMS Gateway"`);
+    } catch (generateError) {
+      setCurl("");
+      setDemoUrl("");
+      setError(generateError instanceof Error ? generateError.message : "Could not generate integration");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return <section className="panel integration-panel">
+    <div className="panel-head"><div><h2>Send message GET API</h2><p className="panel-description">Send only the client key, phone number, and message.</p></div></div>
+    <div className="integration-content">
+      <div className="form-grid">
+        <div className="field full"><label>API endpoint</label><input value={`${GATEWAY_URL}/api/messages/send`} readOnly /></div>
+        <div className="field full"><label>Client</label><select value={clientId} onChange={(event) => { setClientId(event.target.value); setCurl(""); setDemoUrl(""); }} required>
+          <option value="">Select a client</option>
+          {clients.filter((client) => client.status === "active").map((client) => (
+            <option key={client._id} value={client._id}>{text(client.name)}{client.hasStoredApiKey ? "" : " - rotate key first"}</option>
+          ))}
+        </select></div>
+      </div>
+      <button className="button primary integration-generate" disabled={!clientId || loading} onClick={() => void generateCurl()}>{loading ? "Generating..." : "Generate cURL"}</button>
+      {error && <p className="error">{error}</p>}
+      {curl && <>
+        <div className="code-head"><span>Demo URL</span><button className="button small" onClick={() => navigator.clipboard.writeText(demoUrl)}>Copy URL</button></div>
+        <div className="demo-url"><a href={demoUrl} target="_blank" rel="noreferrer">{demoUrl}</a></div>
+        <div className="code-head"><span>cURL</span><button className="button small" onClick={() => navigator.clipboard.writeText(curl)}>Copy cURL</button></div>
+        <pre className="code-block"><code>{curl}</code></pre>
+        <p className="field-hint">Parameters: key, phone, message. Replace the example phone number and message before sending.</p>
+      </>}
+    </div>
+  </section>;
+}
+
+function DeviceLinkModal({ secret, close }: { secret: Extract<Secret, { kind: "deviceLink" }>; close: () => void }) {
+  const payload = JSON.stringify({
+    version: 1,
+    type: "relay_client_link",
+    api_url: secret.apiUrl,
+    client_id: secret.clientId,
+    client_api_key: secret.value,
+  });
+
+  return <section className="modal link-device-modal">
+    <span className="eyebrow">DISPLAYED ONCE</span>
+    <h2>{secret.title}</h2>
+    <p>Scan this code from the phone to connect <strong>{secret.clientName}</strong>. Keep it private because it contains the client API key.</p>
+    <div className="qr-frame">
+      <QRCodeSVG value={payload} size={220} level="M" marginSize={2} />
+    </div>
+    <div className="link-details">
+      <div><span>API URL</span><code>{secret.apiUrl}</code></div>
+      <div><span>Client API key</span><code>{secret.value}</code></div>
+    </div>
+    <div className="modal-actions">
+      <button className="button" onClick={() => navigator.clipboard.writeText(secret.apiUrl)}>Copy URL</button>
+      <button className="button" onClick={() => navigator.clipboard.writeText(payload)}>Copy link data</button>
+      <button className="button primary" onClick={close}>Done</button>
+    </div>
+  </section>;
 }
 
 function OtpModal({ close, send, loading, error }: { close: () => void; send: (event: FormEvent<HTMLFormElement>) => void; loading: boolean; error: string }) {

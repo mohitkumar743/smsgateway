@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getRequestIp, requireClient } from "@/lib/auth";
+import { withApiLogging } from "@/lib/apiLogger";
+import { getRequestIp, requireClient, requireClientToken } from "@/lib/auth";
 import { maskMobile, secureToken } from "@/lib/crypto";
 import { fcmFailure, messaging } from "@/lib/firebase";
 import { createSmsSignature } from "@/lib/hmac";
@@ -17,15 +18,44 @@ const schema = z.object({
 
 const ONLINE_WINDOW_MS = 10 * 60 * 1000;
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const client = await requireClient(request);
+    const input = schema.parse(await request.json());
+    return sendMessage(request, client, input);
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function getHandler(request: NextRequest) {
+  try {
+    const phone = request.nextUrl.searchParams.get("phone");
+    const input = schema.parse({
+      mobile: phone?.startsWith(" ") ? `+${phone.trimStart()}` : phone,
+      message: request.nextUrl.searchParams.get("message"),
+    });
+    const client = await requireClientToken(request.nextUrl.searchParams.get("key"));
+    return sendMessage(request, client, input);
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+export const POST = withApiLogging(postHandler);
+export const GET = withApiLogging(getHandler);
+
+async function sendMessage(
+  request: NextRequest,
+  client: Awaited<ReturnType<typeof requireClient>>,
+  input: z.infer<typeof schema>,
+) {
+  try {
     if (!client) return apiError("UNAUTHORIZED", "Invalid client API key", 401);
     if (client.status !== "active") {
       return apiError("CLIENT_BLOCKED", "Client is blocked", 403);
     }
 
-    const input = schema.parse(await request.json());
     const requestIp = getRequestIp(request);
     if (
       client.allowedIps.length > 0 &&

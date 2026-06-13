@@ -51,4 +51,8 @@ const OtpRequestSchema = new Schema(
 OtpRequestSchema.index({ clientId: 1, createdAt: -1 });
 OtpRequestSchema.index({ deviceId: 1, createdAt: -1 });
 
-export default models.OtpRequest || model("OtpRequest", OtpRequestSchema);
+// Use a new model name for the expanded OTP/message schema while preserving
+// the existing MongoDB collection. This avoids stale schemas during Next.js
+// development hot reloads.
+export default models.SmsRequest ||
+  model("SmsRequest", OtpRequestSchema, "otprequests");

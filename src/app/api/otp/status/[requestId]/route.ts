@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiLogging } from "@/lib/apiLogger";
 import { requireClient } from "@/lib/auth";
 import { apiError, routeError } from "@/lib/response";
 import OtpRequest from "@/models/OtpRequest";
@@ -7,7 +8,7 @@ type Context = {
   params: Promise<{ requestId: string }>;
 };
 
-export async function GET(request: NextRequest, context: Context) {
+async function getHandler(request: NextRequest, context: Context) {
   try {
     const client = await requireClient(request);
     if (!client) return apiError("UNAUTHORIZED", "Invalid client API key", 401);
@@ -48,3 +49,5 @@ export async function GET(request: NextRequest, context: Context) {
     return routeError(error);
   }
 }
+
+export const GET = withApiLogging(getHandler);

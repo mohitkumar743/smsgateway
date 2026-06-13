@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { withApiLogging } from "@/lib/apiLogger";
 import { createAdminJwt } from "@/lib/auth";
 import { connectDb } from "@/lib/db";
 import { apiError, routeError } from "@/lib/response";
@@ -11,7 +12,7 @@ const schema = z.object({
   password: z.string().min(8).max(128),
 });
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const input = schema.parse(await request.json());
     await connectDb();
@@ -27,3 +28,5 @@ export async function POST(request: NextRequest) {
     return routeError(error);
   }
 }
+
+export const POST = withApiLogging(postHandler);

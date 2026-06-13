@@ -49,6 +49,10 @@ export async function requireDevice(request: NextRequest) {
 
 export async function requireClient(request: NextRequest) {
   const token = bearerToken(request);
+  return requireClientToken(token);
+}
+
+export async function requireClientToken(token: string | null) {
   if (!token) return null;
   await connectDb();
   return Client.findOne({ apiKey: tokenDigest(token) });

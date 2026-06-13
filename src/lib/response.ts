@@ -6,6 +6,7 @@ export type ErrorCode =
   | "VALIDATION_ERROR"
   | "UNAUTHORIZED"
   | "CLIENT_BLOCKED"
+  | "KEY_NOT_STORED"
   | "DEVICE_NOT_FOUND"
   | "DEVICE_OFFLINE"
   | "RATE_LIMITED"
