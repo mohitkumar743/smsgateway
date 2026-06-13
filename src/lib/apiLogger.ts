@@ -3,17 +3,13 @@ import { connectDb } from "@/lib/db";
 import { routeError } from "@/lib/response";
 import ApiLog from "@/models/ApiLog";
 
-const REDACTED = "[REDACTED]";
-const sensitiveKeys = /^(authorization|api[_-]?key|client[_-]?api[_-]?key|device[_-]?token|fcm[_-]?token|key|password|secret|otp|code|token)$/i;
-
-function sanitize(value: unknown, key = ""): unknown {
-  if (sensitiveKeys.test(key)) return REDACTED;
-  if (Array.isArray(value)) return value.map((item) => sanitize(item));
+function prepareLogValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => prepareLogValue(item));
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([itemKey, item]) => [
         itemKey,
-        sanitize(item, itemKey),
+        prepareLogValue(item),
       ]),
     );
   }
@@ -42,7 +38,8 @@ async function readRequestData(request: NextRequest) {
     }
   }
 
-  return sanitize({
+  return prepareLogValue({
+    headers: Object.fromEntries(request.headers.entries()),
     query: Object.keys(query).length ? query : undefined,
     body,
   });
@@ -53,9 +50,9 @@ async function readResponseData(response: Response) {
     const raw = await response.clone().text();
     if (!raw) return null;
     try {
-      return sanitize(JSON.parse(raw));
+      return prepareLogValue(JSON.parse(raw));
     } catch {
-      return sanitize(raw);
+      return prepareLogValue(raw);
     }
   } catch {
     return "[UNAVAILABLE]";
